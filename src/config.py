@@ -30,12 +30,26 @@ MODEL_METRICS_FILE = RESULTS_DIR / "model_metrics.csv"
 STREAMLIT_HOST = "localhost"
 STREAMLIT_PORT = 8501
 
-# Students must replace this example with their trained models.
-# Each entry must point to a serialized model saved as `.joblib`, `.pkl`, or `.pickle`.
+# Trained models registry
 MODELS = {
-    "model_a": {
-        "name": "Model A",
-        "description": "A simple baseline model.",
-        "path": MODELS_DIR / "model_a.pkl",
+    "linear_regression": {
+        "name": "Linear Regression",
+        "description": "Baseline regression model with no regularization.",
+        "path": MODELS_DIR / "linear_regression.joblib",
+    },
+    "random_forest": {
+        "name": "Random Forest",
+        "description": "Ensemble of 100 decision trees with bagging.",
+        "path": MODELS_DIR / "random_forest.joblib",
+    },
+    "gradient_boosting": {
+        "name": "Gradient Boosting",
+        "description": "Sequential boosting with 200 estimators and max_depth=5.",
+        "path": MODELS_DIR / "gradient_boosting.joblib",
+    },
+    "knn": {
+        "name": "K-Nearest Neighbors",
+        "description": "KNN regressor (k=10) with standard scaling pipeline.",
+        "path": MODELS_DIR / "knn.joblib",
     },
 }

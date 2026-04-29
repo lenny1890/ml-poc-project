@@ -1,30 +1,42 @@
-"""Student-owned dataset loading contract.
-
-Students must implement ``load_dataset_split`` so that ``scripts/main.py`` can
-evaluate every configured model on the same test split.
-"""
+"""Dataset loading for SNCF TGV delay prediction."""
 
 from __future__ import annotations
-
 from typing import Any
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
+from config import DATA_DIR
 
 
 def load_dataset_split() -> tuple[Any, Any, Any, Any]:
-    """Return the dataset split used for model evaluation.
+    df = pd.read_csv(DATA_DIR / "sncf_retards.csv", sep=";")
 
-    Expected return value:
-        A tuple ``(X_train, X_test, y_train, y_test)``.
+    cols_to_drop = [c for c in df.columns if "Commentaire" in c]
+    df = df.drop(columns=cols_to_drop)
+    df = df.drop(columns=["Service"])
 
-    Constraints:
-    - ``X_train`` and ``X_test`` must contain feature data in a format accepted
-      by the trained models stored in ``config.MODELS``.
-    - ``y_train`` and ``y_test`` must contain the corresponding targets.
-    - ``y_test`` must align with the predictions produced by each loaded model.
+    df["Annee"] = df["Date"].str[:4].astype(int)
+    df["Mois"] = df["Date"].str[5:7].astype(int)
+    df = df.drop(columns=["Date"])
 
-    Typical choices for the return types are ``pandas.DataFrame`` /
-    ``pandas.Series`` or ``numpy.ndarray``.
-    """
+    target = [c for c in df.columns if "Retard moyen de tous les trains" in c and "arriv" in c][0]
+    df = df[df[target] >= 0]
 
-    raise NotImplementedError(
-        "Implement data.load_dataset_split() before running scripts/main.py."
-    )
+    col_dep = [c for c in df.columns if c.startswith("Gare de d")][0]
+    col_arr = [c for c in df.columns if c.startswith("Gare d") and "arriv" in c.lower()][0]
+
+    le_dep = LabelEncoder()
+    le_arr = LabelEncoder()
+    df["Gare_depart_enc"] = le_dep.fit_transform(df[col_dep])
+    df["Gare_arrivee_enc"] = le_arr.fit_transform(df[col_arr])
+
+    col_duree = [c for c in df.columns if "moyenne du trajet" in c][0]
+    col_circ = [c for c in df.columns if "circulations" in c][0]
+    col_annul = [c for c in df.columns if "annul" in c][0]
+
+    features = ["Gare_depart_enc", "Gare_arrivee_enc", col_duree, col_circ, col_annul, "Annee", "Mois"]
+
+    X = df[features]
+    y = df[target]
+
+    return tuple(train_test_split(X, y, test_size=0.2, random_state=42))
