@@ -356,6 +356,7 @@ def build_app() -> None:
         )
 
         mask = (df[col_dep] == gare_dep) & (df[col_arr] == gare_arr)
+        annul_col = [c for c in df.columns if "annul" in c.lower() and "Nombre" in c][0]
         duree_col = [c for c in df.columns if "moyenne du trajet" in c][0]
         circ_col = [c for c in df.columns if "circulations" in c][0]
         duree = df.loc[mask, duree_col]
@@ -364,15 +365,28 @@ def build_app() -> None:
         circ_val = int(circulations.mean()) if len(circulations) > 0 else 300
 
         if st.button("Predire le retard", type="primary", use_container_width=True):
-            features = np.array([[
+            annul_mean = df.loc[mask, annul_col].mean() if len(df.loc[mask]) > 0 else 0
+            retard_dep_col = [c for c in df.columns if "Retard moyen de tous les trains" in c and "part" in c.lower()][0]
+            retard_dep_val = df.loc[mask, retard_dep_col].mean() if len(df.loc[mask]) > 0 else 3.0
+            nb_retard_dep_col = [c for c in df.columns if "Nombre de trains en retard au d" in c][0]
+            nb_retard_dep = df.loc[mask, nb_retard_dep_col].mean() if len(df.loc[mask]) > 0 else 30
+            taux_annul = (annul_mean / circ_val * 100) if circ_val > 0 else 0
+            mois_sin_val = np.sin(2 * np.pi * mois / 12)
+            mois_cos_val = np.cos(2 * np.pi * mois / 12)
+            pct_ret_dep = (nb_retard_dep / circ_val * 100) if circ_val > 0 else 10
+            cause_cols_data = [c for c in df.columns if c.startswith("Prct retard")]
+            cause_vals = []
+            for cc in cause_cols_data:
+                val = df.loc[mask, cc].mean() if len(df.loc[mask]) > 0 else df[cc].mean()
+                cause_vals.append(val if not np.isnan(val) else 0)
+            feature_vector = [
                 le_depart.transform([gare_dep])[0],
                 le_arrivee.transform([gare_arr])[0],
-                duree_val,
-                circ_val,
-                0,
-                2025,
-                mois,
-            ]])
+                duree_val, circ_val, annul_mean, 2025,
+                mois_sin_val, mois_cos_val,
+                taux_annul, retard_dep_val, pct_ret_dep,
+            ] + cause_vals
+            features = np.array([feature_vector])
             prediction = best_model.predict(features)[0]
 
             st.markdown("")
