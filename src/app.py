@@ -10,11 +10,12 @@ import joblib
 import plotly.express as px
 import plotly.graph_objects as go
 
-from config import DATA_DIR, MODELS_DIR, MODEL_METRICS_FILE
+from config import PROJECT_ROOT, MODELS_DIR, MODEL_METRICS_FILE, ensure_dirs
 
 
 def load_data():
-    df = pd.read_csv(DATA_DIR / "sncf_retards.csv", sep=";")
+    ensure_dirs()
+    df = pd.read_csv(PROJECT_ROOT / "sncf_retards.csv", sep=";")
     target = [c for c in df.columns if "Retard moyen de tous les trains" in c and "arriv" in c][0]
     col_arr = [c for c in df.columns if "Gare" in c and "arriv" in c.lower()][0]
     col_dep = [c for c in df.columns if c.startswith("Gare de d")][0]
@@ -82,7 +83,7 @@ def build_app() -> None:
 
     # --- Sidebar ---
     with st.sidebar:
-        st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/1/1e/SNCF_Logo.svg/240px-SNCF_Logo.svg.png", width=120)
+        st.markdown("## \U0001f684 SNCF TGV")
         st.markdown("### Navigation")
         page = st.radio(
             "Section",
@@ -336,25 +337,48 @@ def build_app() -> None:
     # =========================================================
     elif page == "Predicteur interactif":
         st.markdown('<p class="main-title">Predicteur interactif</p>', unsafe_allow_html=True)
-        st.markdown('<p class="subtitle">Selectionnez une liaison et un mois pour predire le retard moyen</p>', unsafe_allow_html=True)
+        st.markdown('<p class="subtitle">Selectionnez une liaison, une date et une heure pour predire le retard moyen</p>', unsafe_allow_html=True)
         st.markdown("")
 
         le_depart = joblib.load(MODELS_DIR / "le_depart.joblib")
         le_arrivee = joblib.load(MODELS_DIR / "le_arrivee.joblib")
         best_model = joblib.load(MODELS_DIR / "gradient_boosting.joblib")
 
+        # Build valid route combinations from the dataset
+        valid_routes: dict[str, list[str]] = (
+            df.groupby(col_dep)[col_arr]
+            .apply(lambda s: sorted(s.unique()))
+            .to_dict()
+        )
+        all_departures = sorted(valid_routes.keys())
+
         col1, col2 = st.columns(2)
         with col1:
-            gare_dep = st.selectbox("Gare de depart", sorted(le_depart.classes_), index=list(sorted(le_depart.classes_)).index("PARIS LYON") if "PARIS LYON" in le_depart.classes_ else 0)
+            default_dep = "PARIS LYON" if "PARIS LYON" in valid_routes else all_departures[0]
+            gare_dep = st.selectbox("Gare de depart", all_departures, index=all_departures.index(default_dep))
         with col2:
-            gare_arr = st.selectbox("Gare d arrivee", sorted(le_arrivee.classes_), index=list(sorted(le_arrivee.classes_)).index("MARSEILLE ST CHARLES") if "MARSEILLE ST CHARLES" in le_arrivee.classes_ else 0)
+            valid_arrivals = valid_routes.get(gare_dep, [])
+            default_arr = "MARSEILLE ST CHARLES" if "MARSEILLE ST CHARLES" in valid_arrivals else valid_arrivals[0]
+            gare_arr = st.selectbox("Gare d arrivee", valid_arrivals, index=valid_arrivals.index(default_arr))
 
-        mois = st.select_slider(
-            "Mois",
-            options=list(range(1, 13)),
-            format_func=lambda x: ["Jan", "Fev", "Mar", "Avr", "Mai", "Juin", "Juil", "Aout", "Sep", "Oct", "Nov", "Dec"][x-1],
-            value=6,
-        )
+        # Date and time inputs
+        col_date, col_heure, col_jour = st.columns(3)
+        with col_date:
+            depart_date = st.date_input(
+                "Date de depart",
+                value=datetime.date.today(),
+                min_value=datetime.date(2018, 1, 1),
+                max_value=datetime.date(2030, 12, 31),
+            )
+        with col_heure:
+            heure = st.slider("Heure de depart", 0, 23, 8, format="%dh00")
+        with col_jour:
+            jours = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
+            st.markdown(f"**Jour**")
+            st.markdown(f"### {jours[depart_date.weekday()]}")
+
+        mois = depart_date.month
+        annee = depart_date.year
 
         mask = (df[col_dep] == gare_dep) & (df[col_arr] == gare_arr)
         annul_col = [c for c in df.columns if "annul" in c.lower() and "Nombre" in c][0]
@@ -383,7 +407,7 @@ def build_app() -> None:
             feature_vector = [
                 le_depart.transform([gare_dep])[0],
                 le_arrivee.transform([gare_arr])[0],
-                duree_val, circ_val, annul_mean, datetime.date.today().year,
+                duree_val, circ_val, annul_mean, annee,
                 mois_sin_val, mois_cos_val,
                 taux_annul, retard_dep_val, pct_ret_dep,
             ] + cause_vals

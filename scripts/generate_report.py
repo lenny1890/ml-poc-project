@@ -12,6 +12,7 @@ Outputs:
 import pathlib
 import warnings
 import datetime
+import joblib
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split, cross_val_score
@@ -106,6 +107,10 @@ for split in [X_train_df, X_test_df]:
     split["gare_dep_enc"] = le_dep.transform(split[col_dep])
     split["gare_arr_enc"] = le_arr.transform(split[col_arr])
 
+# Save encoders for the Streamlit predictor
+joblib.dump(le_dep, ROOT / "models" / "le_depart.joblib")
+joblib.dump(le_arr, ROOT / "models" / "le_arrivee.joblib")
+
 X_train = X_train_df[features_v2]
 X_test  = X_test_df[features_v2]
 
@@ -130,17 +135,25 @@ GB_BEST_PARAMS = dict(
     n_estimators=500,
 )
 
+# Keys match the filenames expected by config.MODELS and app.py
 models = {
-    "LinearRegression": LinearRegression(),
-    "RandomForest":     RandomForestRegressor(
-                            n_estimators=300, max_depth=7,
-                            random_state=42, n_jobs=-1),
-    "GradientBoosting": GradientBoostingRegressor(
-                            **GB_BEST_PARAMS, random_state=42),
-    "KNN":              Pipeline([
-                            ("scaler", StandardScaler()),
-                            ("knn", KNeighborsRegressor(n_neighbors=10))
-                        ]),
+    "linear_regression": LinearRegression(),
+    "random_forest":     RandomForestRegressor(
+                             n_estimators=300, max_depth=7,
+                             random_state=42, n_jobs=-1),
+    "gradient_boosting": GradientBoostingRegressor(
+                             **GB_BEST_PARAMS, random_state=42),
+    "knn":               Pipeline([
+                             ("scaler", StandardScaler()),
+                             ("knn", KNeighborsRegressor(n_neighbors=10))
+                         ]),
+}
+
+MODEL_DISPLAY_NAMES = {
+    "linear_regression": "Linear Regression",
+    "random_forest":     "Random Forest",
+    "gradient_boosting": "Gradient Boosting",
+    "knn":               "KNN",
 }
 
 # ---------------------------------------------------------------------------
@@ -154,6 +167,7 @@ for name, model in models.items():
 
     # Hold-out evaluation
     model.fit(X_train, y_train)
+    joblib.dump(model, ROOT / "models" / f"{name}.joblib")
     y_pred_tr = model.predict(X_train)
     y_pred_te = model.predict(X_test)
 
@@ -173,11 +187,11 @@ for name, model in models.items():
     print(f"done. R2_test={r2_test:.4f} | MAE={mae:.2f} min | MAE_var={mae_var:.4f}")
 
     records.append({
-        "Model":        name,
-        "MAE_test":     round(mae, 4),
-        "RMSE_test":    round(rmse, 4),
+        "model_name":   MODEL_DISPLAY_NAMES[name],
+        "MAE":          round(mae, 4),
+        "RMSE":         round(rmse, 4),
         "R2_train":     round(r2_train, 4),
-        "R2_test":      round(r2_test, 4),
+        "R2":           round(r2_test, 4),
         "MAE_CV_mean":  round(mae_cv.mean(), 4),
         "MAE_CV_std":   round(mae_cv.std(), 4),
         "MAE_CV_var":   round(mae_var, 4),
@@ -185,7 +199,7 @@ for name, model in models.items():
         "R2_CV_std":    round(r2_cv.std(), 4),
     })
 
-metrics_df = pd.DataFrame(records).sort_values("R2_test", ascending=False)
+metrics_df = pd.DataFrame(records).sort_values("R2", ascending=False)
 
 # ---------------------------------------------------------------------------
 # 6. Save CSV
@@ -207,11 +221,11 @@ divider = "|---|---|---|---|---|---|---|---|---|---|"
 rows = []
 for _, row in metrics_df.iterrows():
     rows.append(
-        f"| {row['Model']} "
-        f"| {row['MAE_test']:.4f} "
-        f"| {row['RMSE_test']:.4f} "
+        f"| {row['model_name']} "
+        f"| {row['MAE']:.4f} "
+        f"| {row['RMSE']:.4f} "
         f"| {row['R2_train']:.4f} "
-        f"| {row['R2_test']:.4f} "
+        f"| {row['R2']:.4f} "
         f"| {row['MAE_CV_mean']:.4f} "
         f"| {row['MAE_CV_std']:.4f} "
         f"| {row['MAE_CV_var']:.4f} "
@@ -223,9 +237,9 @@ table = "\n".join([header, divider] + rows)
 # Overfit detection
 overfit_flags = []
 for _, row in metrics_df.iterrows():
-    gap = row["R2_train"] - row["R2_test"]
+    gap = row["R2_train"] - row["R2"]
     if gap > 0.10:
-        overfit_flags.append(f"- **{row['Model']}**: R2 gap train-test = +{gap:.4f} (possible overfitting)")
+        overfit_flags.append(f"- **{row['model_name']}**: R2 gap train-test = +{gap:.4f} (possible overfitting)")
 overfit_section = "\n".join(overfit_flags) if overfit_flags else "- No significant overfitting detected across models."
 
 # Data quality summary
@@ -246,9 +260,9 @@ report_md = f"""# ML Model Performance Report — SNCF TGV Delay Prediction
 
 ## Executive Summary
 
-**Best model**: {best_model['Model']} (R2 test = {best_model['R2_test']:.4f}, MAE = {best_model['MAE_test']:.2f} min)
+**Best model**: {best_model['model_name']} (R2 test = {best_model['R2']:.4f}, MAE = {best_model['MAE']:.2f} min)
 
-**Key finding**: The V2 feature set with {len(features_v2)} features — including cyclical month encoding, cancellation rate, and six cause-of-delay breakdown columns — enables GradientBoosting (optimised via GridSearchCV) to explain {best_model['R2_test']*100:.1f}% of variance in arrival delay, compared to ~50% with the V1 baseline feature set. The best model predicts average arrival delay within **{best_model['MAE_test']:.2f} minutes** on the hold-out test set.
+**Key finding**: The V2 feature set with {len(features_v2)} features — including cyclical month encoding, cancellation rate, and six cause-of-delay breakdown columns — enables GradientBoosting (optimised via GridSearchCV) to explain {best_model['R2']*100:.1f}% of variance in arrival delay, compared to ~50% with the V1 baseline feature set. The best model predicts average arrival delay within **{best_model['MAE']:.2f} minutes** on the hold-out test set.
 
 **Immediate action**: Deploy GradientBoosting V2 as the production predictor. Monitor MAE in production against the CV benchmark of {best_model['MAE_CV_mean']:.2f} ± {best_model['MAE_CV_std']:.2f} min.
 
@@ -322,11 +336,11 @@ MAE unit: minutes. R2 range: [0, 1] where 1 = perfect fit.
 
 Lower MAE variance indicates more stable, generalisable predictions.
 
-{chr(10).join([f"- {r['Model']}: MAE CV var = {r['MAE_CV_var']:.4f} (std = {r['MAE_CV_std']:.4f} min)" for _, r in metrics_df.iterrows()])}
+{chr(10).join([f"- {r['model_name']}: MAE CV var = {r['MAE_CV_var']:.4f} (std = {r['MAE_CV_std']:.4f} min)" for _, r in metrics_df.iterrows()])}
 
 ### Model Ranking by R2 Test
 
-{chr(10).join([f"{i+1}. **{r['Model']}** — R2 test = {r['R2_test']:.4f} | MAE = {r['MAE_test']:.2f} min | RMSE = {r['RMSE_test']:.2f} min" for i, (_, r) in enumerate(metrics_df.iterrows())])}
+{chr(10).join([f"{i+1}. **{r['model_name']}** — R2 test = {r['R2']:.4f} | MAE = {r['MAE']:.2f} min | RMSE = {r['RMSE']:.2f} min" for i, (_, r) in enumerate(metrics_df.iterrows())])}
 
 ---
 
@@ -336,7 +350,7 @@ Lower MAE variance indicates more stable, generalisable predictions.
 
 **Recommendation 1 — Production Deployment**: Deploy GradientBoosting with V2 features as the production model. Expected MAE in production: ~{best_model['MAE_CV_mean']:.2f} min (95% CI based on CV std: ±{best_model['MAE_CV_std']*2:.2f} min). ROI: improved schedule reliability communications.
 
-**Recommendation 2 — Feature Enrichment**: The cause breakdown columns (6 features) are key variance explainers. Investigate adding external weather data and maintenance calendar events to further improve R2 beyond {best_model['R2_test']:.2f}.
+**Recommendation 2 — Feature Enrichment**: The cause breakdown columns (6 features) are key variance explainers. Investigate adding external weather data and maintenance calendar events to further improve R2 beyond {best_model['R2']:.2f}.
 
 **Recommendation 3 — Monitoring**: Set up automated MAE alerting if production MAE exceeds {best_model['MAE_CV_mean'] + 2*best_model['MAE_CV_std']:.2f} min (mean + 2 std threshold). Retrain quarterly with fresh SNCF open data.
 
@@ -352,8 +366,8 @@ Lower MAE variance indicates more stable, generalisable predictions.
 
 | KPI | Current | Target |
 |---|---|---|
-| R2 test | {best_model['R2_test']:.4f} | > 0.80 |
-| MAE test (min) | {best_model['MAE_test']:.2f} | < {best_model['MAE_test']*0.75:.2f} |
+| R2 test | {best_model['R2']:.4f} | > 0.80 |
+| MAE test (min) | {best_model['MAE']:.2f} | < {best_model['MAE']*0.75:.2f} |
 | MAE CV variance | {best_model['MAE_CV_var']:.4f} | < 0.10 |
 | Model retraining cadence | — | Quarterly |
 
