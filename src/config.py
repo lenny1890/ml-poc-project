@@ -11,7 +11,7 @@ RESULTS_DIR = PROJECT_ROOT / "results"
 SCRIPTS_DIR = PROJECT_ROOT / "scripts"
 TESTS_DIR = PROJECT_ROOT / "tests"
 
-for dir in [
+_MANAGED_DIRS = [
     DATA_DIR,
     LOGS_DIR,
     MODELS_DIR,
@@ -20,8 +20,18 @@ for dir in [
     RESULTS_DIR,
     SCRIPTS_DIR,
     TESTS_DIR,
-]:
-    dir.mkdir(exist_ok=True)
+]
+
+
+def ensure_dirs() -> None:
+    """Create all project directories that must exist at runtime.
+
+    Called explicitly by entry points (scripts/main.py, app.py) rather than
+    as a module-level side effect, so that importing ``config`` in tests or
+    notebooks never touches the filesystem unexpectedly.
+    """
+    for d in _MANAGED_DIRS:
+        d.mkdir(parents=True, exist_ok=True)
 
 ENV_FILE = PROJECT_ROOT / ".env"
 APP_ENTRYPOINT = PROJECT_ROOT / "src" / "app.py"

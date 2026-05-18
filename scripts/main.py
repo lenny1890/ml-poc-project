@@ -20,49 +20,66 @@ def _load_module(module_name: str, module_path: Path) -> Any:
     return module
 
 
+# ---------------------------------------------------------------------------
+# Bootstrap: resolve paths and register "config" in sys.modules so that
+# src/ modules can do `from config import ...` regardless of cwd.
+# All of this is intentionally inside a guard so that importing this file
+# as a module (e.g. in tests) does NOT trigger filesystem side effects.
+# ---------------------------------------------------------------------------
 SCRIPT_DIR = Path(__file__).resolve().parent
-
-config = _load_module("project_config", SCRIPT_DIR.parent / "src" / "config.py")
-sys.modules["config"] = config
-load_dotenv(config.ENV_FILE)
-PROJECT_ROOT = config.PROJECT_ROOT
-SRC_DIR = config.SRC_DIR
-APP_ENTRYPOINT = config.APP_ENTRYPOINT
-MODELS = config.MODELS
-STREAMLIT_HOST = config.STREAMLIT_HOST
-STREAMLIT_PORT = config.STREAMLIT_PORT
-
-data_module = _load_module("project_data", SRC_DIR / "data.py")
-metrics_module = _load_module("project_metrics", SRC_DIR / "metrics.py")
-model_io_module = _load_module("project_model_io", SRC_DIR / "model_io.py")
-results_module = _load_module("project_results", SRC_DIR / "results.py")
-
-load_dataset_split = data_module.load_dataset_split
-compute_metrics = metrics_module.compute_metrics
-load_model = model_io_module.load_model
-write_metrics = results_module.write_metrics
+_SRC_DIR = SCRIPT_DIR.parent / "src"
 
 
-def _validate_models_config() -> None:
-    if not MODELS:
+def _bootstrap() -> tuple[Any, Any, Any, Any, Any]:
+    """Load config + src modules and return (config, load_dataset_split,
+    compute_metrics, load_model, write_metrics).
+
+    Kept in a function so that nothing runs at import time.
+    """
+    config = _load_module("project_config", _SRC_DIR / "config.py")
+    # Register under the bare name so `from config import X` works in src/.
+    sys.modules["config"] = config
+    load_dotenv(config.ENV_FILE)
+
+    data_module = _load_module("project_data", _SRC_DIR / "data.py")
+    metrics_module = _load_module("project_metrics", _SRC_DIR / "metrics.py")
+    model_io_module = _load_module("project_model_io", _SRC_DIR / "model_io.py")
+    results_module = _load_module("project_results", _SRC_DIR / "results.py")
+
+    return (
+        config,
+        data_module.load_dataset_split,
+        metrics_module.compute_metrics,
+        model_io_module.load_model,
+        results_module.write_metrics,
+    )
+
+
+def _validate_models_config(models: dict) -> None:
+    if not models:
         raise ValueError("config.MODELS is empty. Add your trained models first.")
 
-    for model_key, model_config in MODELS.items():
+    for model_key, model_config in models.items():
         if "path" not in model_config:
             raise ValueError(
                 f"Missing `path` for model `{model_key}` in config.MODELS."
             )
 
 
-def _validate_app_entrypoint() -> None:
-    app_module = _load_module("project_app", APP_ENTRYPOINT)
+def _validate_app_entrypoint(app_entrypoint: Path) -> None:
+    """Validate that app.py exposes a callable build_app.
+
+    This is checked just before launching Streamlit — not before evaluation —
+    so that a broken app entry point never blocks model metrics computation.
+    """
+    app_module = _load_module("project_app", app_entrypoint)
     if not hasattr(app_module, "build_app") or not callable(app_module.build_app):
         raise TypeError("app.build_app must be a callable Streamlit entry point.")
 
 
-def _streamlit_env() -> dict[str, str]:
+def _streamlit_env(src_dir: Path) -> dict[str, str]:
     env = os.environ.copy()
-    pythonpath_entries = [str(SRC_DIR)]
+    pythonpath_entries = [str(src_dir)]
     existing_pythonpath = env.get("PYTHONPATH", "")
     if existing_pythonpath:
         pythonpath_entries.append(existing_pythonpath)
@@ -71,7 +88,7 @@ def _streamlit_env() -> dict[str, str]:
     return env
 
 
-def _load_dataset() -> tuple[Any, Any, Any, Any]:
+def _load_dataset(load_dataset_split) -> tuple[Any, Any, Any, Any]:
     dataset_split = load_dataset_split()
     if not isinstance(dataset_split, tuple) or len(dataset_split) != 4:
         raise ValueError(
@@ -82,10 +99,16 @@ def _load_dataset() -> tuple[Any, Any, Any, Any]:
     return dataset_split
 
 
-def _evaluate_models(X_test: Any, y_test: Any) -> list[dict[str, object]]:
+def _evaluate_models(
+    models: dict,
+    load_model,
+    compute_metrics,
+    X_test: Any,
+    y_test: Any,
+) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
 
-    for model_key, model_config in MODELS.items():
+    for model_key, model_config in models.items():
         model = load_model(Path(model_config["path"]))
 
         if not hasattr(model, "predict"):
@@ -115,9 +138,10 @@ def _evaluate_models(X_test: Any, y_test: Any) -> list[dict[str, object]]:
     return rows
 
 
-def _launch_streamlit() -> None:
-    if not APP_ENTRYPOINT.exists():
-        raise FileNotFoundError(f"Streamlit entry point not found: {APP_ENTRYPOINT}")
+def _launch_streamlit(app_entrypoint: Path, project_root: Path, src_dir: Path,
+                      host: str, port: int) -> None:
+    if not app_entrypoint.exists():
+        raise FileNotFoundError(f"Streamlit entry point not found: {app_entrypoint}")
 
     subprocess.run(
         [
@@ -125,24 +149,28 @@ def _launch_streamlit() -> None:
             "-m",
             "streamlit",
             "run",
-            str(APP_ENTRYPOINT),
+            str(app_entrypoint),
             "--server.address",
-            STREAMLIT_HOST,
+            host,
             "--server.port",
-            str(STREAMLIT_PORT),
+            str(port),
         ],
         check=True,
-        cwd=PROJECT_ROOT,
-        env=_streamlit_env(),
+        cwd=project_root,
+        env=_streamlit_env(src_dir),
     )
 
 
 def main() -> None:
-    _validate_app_entrypoint()
-    _validate_models_config()
+    config, load_dataset_split, compute_metrics, load_model, write_metrics = _bootstrap()
+
+    # Ensure all project directories exist before any I/O.
+    config.ensure_dirs()
+
+    _validate_models_config(config.MODELS)
 
     try:
-        _, X_test, _, y_test = _load_dataset()
+        _, X_test, _, y_test = _load_dataset(load_dataset_split)
     except NotImplementedError as exc:
         raise NotImplementedError(
             "Dataset loading is still a template placeholder. "
@@ -150,7 +178,9 @@ def main() -> None:
         ) from exc
 
     try:
-        metrics_rows = _evaluate_models(X_test, y_test)
+        metrics_rows = _evaluate_models(
+            config.MODELS, load_model, compute_metrics, X_test, y_test
+        )
     except NotImplementedError as exc:
         raise NotImplementedError(
             "Metric computation is still a template placeholder. "
@@ -161,9 +191,18 @@ def main() -> None:
 
     print("Model evaluation completed. Metrics saved to results/model_metrics.csv")
     print(metrics_df.to_string(index=False))
-    print(f"\nLaunching Streamlit on http://{STREAMLIT_HOST}:{STREAMLIT_PORT} ...")
+    print(f"\nLaunching Streamlit on http://{config.STREAMLIT_HOST}:{config.STREAMLIT_PORT} ...")
 
-    _launch_streamlit()
+    # Validate app entry point only just before launching — a broken Streamlit
+    # file must not prevent model evaluation results from being written.
+    _validate_app_entrypoint(config.APP_ENTRYPOINT)
+    _launch_streamlit(
+        config.APP_ENTRYPOINT,
+        config.PROJECT_ROOT,
+        config.SRC_DIR,
+        config.STREAMLIT_HOST,
+        config.STREAMLIT_PORT,
+    )
 
 
 if __name__ == "__main__":

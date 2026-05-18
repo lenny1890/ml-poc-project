@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import pandas as pd
 import numpy as np
 import streamlit as st
@@ -150,7 +151,7 @@ def build_app() -> None:
             st.markdown(
                 "**Approche** : 4 algorithmes de regression sont compares "
                 "(Linear Regression, Random Forest, Gradient Boosting, KNN). "
-                "Le meilleur modele (Gradient Boosting, R2=0.50) est utilise "
+                "Le meilleur modele (Gradient Boosting, R2=0.68 avec features V2) est utilise "
                 "dans le predicteur interactif."
             )
 
@@ -382,7 +383,7 @@ def build_app() -> None:
             feature_vector = [
                 le_depart.transform([gare_dep])[0],
                 le_arrivee.transform([gare_arr])[0],
-                duree_val, circ_val, annul_mean, 2025,
+                duree_val, circ_val, annul_mean, datetime.date.today().year,
                 mois_sin_val, mois_cos_val,
                 taux_annul, retard_dep_val, pct_ret_dep,
             ] + cause_vals
