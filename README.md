@@ -9,14 +9,15 @@ Predire le **retard moyen a l'arrivee** (en minutes) d'une liaison TGV donnee, p
 ## Dataset
 
 - **Source** : [SNCF Open Data - Regularite mensuelle TGV par liaisons](https://ressources.data.sncf.com/explore/dataset/regularite-mensuelle-tgv-aqst/)
-- **Volume** : 12 181 observations (2018-2026)
+- **Volume** : ~12 000 observations (2018-2026)
 - **Granularite** : mensuelle, par liaison gare a gare
-- **Variable cible** : Retard moyen de tous les trains a l'arrivee (minutes)
-- **Features** : gare de depart, gare d'arrivee, duree du trajet, nombre de circulations prevues, nombre de trains annules, annee, mois
+- **Variable cible** : retard moyen de tous les trains a l'arrivee (minutes)
 
-Le fichier CSV n'est pas versionne (trop volumineux). Pour reproduire le projet, telechargez-le depuis le lien ci-dessus et placez-le dans `data/sncf_retards.csv`.
+Le fichier CSV (`sncf_retards.csv`) n'est pas versionne. Pour reproduire le projet, telechargez-le depuis le lien ci-dessus et placez-le a la racine du depot.
 
 ## Resultats
+
+### V1 — Baseline (7 features)
 
 | Modele | MAE (min) | RMSE (min) | R2 |
 |--------|-----------|------------|------|
@@ -25,29 +26,57 @@ Le fichier CSV n'est pas versionne (trop volumineux). Pour reproduire le projet,
 | K-Nearest Neighbors | 2.17 | 3.06 | 0.38 |
 | Linear Regression | 2.66 | 3.59 | 0.15 |
 
-Le **Gradient Boosting** est le modele retenu, avec une erreur moyenne de 1.9 minutes et un R2 de 0.50.
+### V2 — Feature engineering enrichi (17 features)
+
+| Modele | MAE (min) | RMSE (min) | R2 |
+|--------|-----------|------------|------|
+| Gradient Boosting | ~1.5 | ~2.2 | **0.68** |
+| Random Forest | — | — | ~0.65 |
+| K-Nearest Neighbors | — | — | ~0.50 |
+| Linear Regression | — | — | ~0.18 |
+
+Le **Gradient Boosting** est le modele retenu. Le passage V1 -> V2 ameliore le R2 de +0.18 points grace aux features de saisonnalite cyclique, taux d'annulation et repartition des causes de retard.
+
+## Notebooks
+
+| Notebook | Role |
+|----------|------|
+| `01_eda.ipynb` | Analyse exploratoire (distribution de la cible, saisonnalite, top liaisons, correlations) |
+| `02_preprocessing_training.ipynb` | Baseline V1 : preprocessing, encodage des gares, entrainement et evaluation de 4 modeles |
+| `03_feature_engineering.ipynb` | Feature engineering V2 : 17 features, GridSearchCV, cross-validation 5 folds, importance des features |
+
+Executez les notebooks dans cet ordre pour reproduire les resultats.
 
 ## Structure du projet
 
     ml-poc-project/
-    ├── data/                  # Donnees brutes (non versionnees)
-    ├── models/                # Modeles entraines (.joblib)
+    ├── data/                  # Repertoire cible pour les donnees (vide, non versionne)
+    ├── models/                # Modeles entraines (.joblib) et metriques CSV
     ├── notebooks/
-    │   ├── 01_eda.ipynb
-    │   └── 02_preprocessing_training.ipynb
-    ├── plots/
+    │   ├── 01_eda.ipynb                      # Analyse exploratoire
+    │   ├── 02_preprocessing_training.ipynb   # Baseline V1
+    │   └── 03_feature_engineering.ipynb      # Feature engineering V2
+    ├── plots/                 # Graphiques exportes
     ├── results/               # model_metrics.csv
     ├── scripts/
-    │   └── main.py
+    │   └── main.py            # Pipeline complet (entrainement + sauvegarde metriques)
     ├── src/
-    │   ├── config.py
-    │   ├── data.py
-    │   ├── metrics.py
-    │   └── app.py
+    │   ├── config.py          # Chemins, constantes, registre des modeles
+    │   ├── data.py            # Chargement, nettoyage et split train/test (V2)
+    │   ├── metrics.py         # Calcul et sauvegarde des metriques
+    │   ├── model_io.py        # Chargement/sauvegarde des modeles joblib
+    │   ├── results.py         # Agregation et export des resultats
+    │   └── app.py             # Application Streamlit (5 sections)
     ├── tests/
     ├── .gitignore
     ├── requirements.txt
     └── README.md
+
+## Probleme de data leakage identifie
+
+La colonne `col_retard_dep` ("Retard moyen de tous les trains au depart") et la feature derivee `pct_retard_depart` sont **contemporaines de la variable cible** : elles decrivent le meme lot de trajets, le meme mois. Les inclure dans un modele de prediction prospective constitue du label leakage.
+
+Ces deux features sont **exclues par defaut** dans `src/data.py` (flag `INCLUDE_DEPARTURE_DELAY_FEATURES = False`). Le R2 de 0.68 est mesure sans elles. Elles peuvent etre reactivees uniquement dans un contexte d'explication contemporaine (ex. : comprendre pourquoi un mois est en retard apres coup), a condition de le documenter explicitement dans la fiche modele.
 
 ## Installation et execution
 
@@ -64,30 +93,29 @@ Le **Gradient Boosting** est le modele retenu, avec une erreur moyenne de 1.9 mi
 
 ### 3. Telecharger les donnees
 
-Telechargez le CSV depuis [SNCF Open Data](https://ressources.data.sncf.com/explore/dataset/regularite-mensuelle-tgv-aqst/) et placez-le dans `data/sncf_retards.csv`.
+Telechargez le CSV depuis [SNCF Open Data](https://ressources.data.sncf.com/explore/dataset/regularite-mensuelle-tgv-aqst/) et placez-le a la racine du depot : `sncf_retards.csv`.
 
-### 4. Entrainer les modeles
+### 4. Reproduire les modeles
 
-Executez les notebooks dans l'ordre :
-
-    notebooks/01_eda.ipynb
-    notebooks/02_preprocessing_training.ipynb
-
-### 5. Lancer le pipeline complet
+Executez les notebooks dans l'ordre (`01_eda`, `02_preprocessing_training`, `03_feature_engineering`) ou lancez le pipeline complet :
 
     python scripts/main.py
 
-Cette commande va charger les donnees, evaluer chaque modele, sauvegarder les metriques dans `results/model_metrics.csv`, et lancer l'application Streamlit sur `http://localhost:8501`.
+Cette commande charge les donnees, evalue chaque modele et sauvegarde les metriques dans `results/model_metrics.csv`.
 
-## Application Streamlit
+## Lancer l'application
 
-L'application comprend 5 sections :
+    streamlit run src/app.py
+
+L'application s'ouvre sur `http://localhost:8501` et comprend 5 sections :
 
 1. **Vue d'ensemble** : KPI globaux et evolution temporelle des retards
 2. **Exploration des donnees** : saisonnalite, tendances annuelles, top des liaisons
-3. **Causes de retard** : repartition des causes et impact COVID
-4. **Comparaison des modeles** : tableau comparatif et visualisations
-5. **Predicteur interactif** : prediction de retard avec historique de la liaison
+3. **Causes de retard** : repartition des 6 causes et impact COVID
+4. **Comparaison des modeles** : tableau comparatif et visualisations (lit `results/model_metrics.csv`)
+5. **Predicteur interactif** : selection d'une liaison et d'un mois, prediction et historique de la liaison
+
+> **Prerequis** : les modeles `.joblib` doivent etre generes avant de lancer l'application (etape 4).
 
 ## Technologies
 
