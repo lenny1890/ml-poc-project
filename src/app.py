@@ -13,6 +13,69 @@ import plotly.graph_objects as go
 from config import PROJECT_ROOT, MODELS_DIR, MODEL_METRICS_FILE, ensure_dirs
 
 
+STATION_COORDS: dict[str, tuple[float, float]] = {
+    "AIX EN PROVENCE TGV": (43.4561, 5.3175),
+    "ANGERS SAINT LAUD": (47.4609, -0.5506),
+    "ANGOULEME": (45.6487, 0.1533),
+    "ANNECY": (45.9004, 6.1272),
+    "ARRAS": (50.2880, 2.7756),
+    "AVIGNON TGV": (43.9217, 4.8672),
+    "BARCELONA": (41.3797, 2.1404),
+    "BELLEGARDE (AIN)": (46.1090, 5.8244),
+    "BESANCON FRANCHE COMTE TGV": (47.2547, 5.9888),
+    "BORDEAUX ST JEAN": (44.8259, -0.5561),
+    "BREST": (48.3904, -4.4860),
+    "CHAMBERY CHALLES LES EAUX": (45.5694, 5.9186),
+    "DIJON VILLE": (47.3225, 5.0347),
+    "DOUAI": (50.3710, 3.0784),
+    "DUNKERQUE": (51.0343, 2.3773),
+    "FRANCFORT": (50.1070, 8.6635),
+    "GENEVE": (46.2100, 6.1429),
+    "GRENOBLE": (45.1916, 5.7153),
+    "LA ROCHELLE VILLE": (46.1600, -1.1492),
+    "LAUSANNE": (46.5179, 6.6341),
+    "LAVAL": (48.0697, -0.7717),
+    "LE CREUSOT MONTCEAU MONTCHANIN": (46.7939, 4.3938),
+    "LE MANS": (48.0071, 0.1929),
+    "LILLE": (50.6366, 3.0696),
+    "LYON PART DIEU": (45.7604, 4.8601),
+    "MACON LOCHE": (46.3076, 4.8246),
+    "MADRID": (40.4168, -3.7038),
+    "MARNE LA VALLEE": (48.8440, 2.7794),
+    "MARSEILLE ST CHARLES": (43.3024, 5.3803),
+    "METZ": (49.1095, 6.1762),
+    "MONTPELLIER": (43.6046, 3.8793),
+    "MULHOUSE VILLE": (47.7449, 7.3388),
+    "NANCY": (48.6899, 6.1762),
+    "NANTES": (47.2181, -1.5415),
+    "NICE VILLE": (43.7044, 7.2621),
+    "NIMES": (43.8384, 4.3602),
+    "PARIS EST": (48.8766, 2.3590),
+    "PARIS LYON": (48.8453, 2.3737),
+    "PARIS MONTPARNASSE": (48.8409, 2.3219),
+    "PARIS NORD": (48.8809, 2.3553),
+    "PARIS VAUGIRARD": (48.8384, 2.3024),
+    "PERPIGNAN": (42.6990, 2.8944),
+    "POITIERS": (46.5795, -0.3417),
+    "QUIMPER": (47.9968, -4.0971),
+    "REIMS": (49.2594, 4.0274),
+    "RENNES": (48.1039, -1.6722),
+    "SAINT ETIENNE CHATEAUCREUX": (45.4392, 4.3897),
+    "ST MALO": (48.6458, -2.0121),
+    "ST PIERRE DES CORPS": (47.3808, 0.7186),
+    "STRASBOURG": (48.5851, 7.7341),
+    "STUTTGART": (48.7758, 9.1829),
+    "TOULON": (43.1228, 5.9289),
+    "TOULOUSE MATABIAU": (43.6117, 1.4547),
+    "TOURCOING": (50.7234, 3.1611),
+    "TOURS": (47.3808, 0.6924),
+    "VALENCE ALIXAN TGV": (44.9580, 4.8955),
+    "VANNES": (47.6582, -2.7599),
+    "ZURICH": (47.3783, 8.5404),
+}
+
+
+@st.cache_data
 def load_data():
     ensure_dirs()
     df = pd.read_csv(PROJECT_ROOT / "sncf_retards.csv", sep=";")
@@ -28,6 +91,14 @@ def load_data():
     return df, target, col_dep, col_arr
 
 
+@st.cache_resource
+def load_models():
+    le_depart = joblib.load(MODELS_DIR / "le_depart.joblib")
+    le_arrivee = joblib.load(MODELS_DIR / "le_arrivee.joblib")
+    best_model = joblib.load(MODELS_DIR / "gradient_boosting.joblib")
+    return le_depart, le_arrivee, best_model
+
+
 def build_app() -> None:
     st.set_page_config(
         page_title="SNCF TGV Delay Predictor",
@@ -36,7 +107,6 @@ def build_app() -> None:
         initial_sidebar_state="expanded",
     )
 
-    # Custom CSS
     st.markdown("""
     <style>
     .main-title {
@@ -101,6 +171,15 @@ def build_app() -> None:
 
     df, target, col_dep, col_arr = load_data()
 
+    # Pre-compute column references used across multiple pages
+    col_circ = [c for c in df.columns if "circulations" in c and "Nombre" in c][0]
+    col_annul = [c for c in df.columns if "annul" in c.lower() and "Nombre" in c][0]
+    col_retards_arr = [c for c in df.columns if "en retard" in c and "arriv" in c.lower() and "Nombre" in c][0]
+    col_15min = [c for c in df.columns if "> 15" in c and "Nombre" in c][0]
+    col_30min = [c for c in df.columns if "> 30" in c and "Nombre" in c][0]
+    col_60min = [c for c in df.columns if "> 60" in c and "Nombre" in c][0]
+    duree_col = [c for c in df.columns if "moyenne du trajet" in c][0]
+
     # --- Sidebar ---
     with st.sidebar:
         st.markdown("## 🚄 SNCF TGV")
@@ -110,10 +189,10 @@ def build_app() -> None:
             "Navigation",
             [
                 "Contexte & Enjeux",
-                "Liaisons a risque",
+                "Liaisons à risque",
                 "Comprendre les retards",
-                "Predire un retard",
-                "Synthese",
+                "Prédire un retard",
+                "Synthèse",
             ],
             label_visibility="collapsed",
         )
@@ -131,20 +210,61 @@ def build_app() -> None:
         st.markdown('<p class="main-title">Retards TGV — Analyse & Prédiction</p>', unsafe_allow_html=True)
         st.markdown('<p class="subtitle">Données SNCF Open Data · 2018–2026 · Réseau TGV national</p>', unsafe_allow_html=True)
 
-        # KPIs
-        retard_moyen = df[target].mean()
+        # YoY comparison on same months (avoid partial-year bias)
+        current_year = int(df["Annee"].max())
+        current_max_month = int(df[df["Annee"] == current_year]["Mois"].max())
+        df_cy = df[(df["Annee"] == current_year) & (df["Mois"] <= current_max_month)]
+        df_py = df[(df["Annee"] == (current_year - 1)) & (df["Mois"] <= current_max_month)]
+
+        # Retard moyen (current year vs same months prior year)
+        retard_cy = df_cy[target].mean()
+        retard_py = df_py[target].mean() if len(df_py) > 0 else retard_cy
+        delta_retard = retard_cy - retard_py
+
+        # Taux de ponctualité = % trains not late at arrival
+        circ_total = df[col_circ].sum()
+        retards_arr_total = df[col_retards_arr].sum()
+        ponctualite = (1 - retards_arr_total / circ_total) * 100 if circ_total > 0 else 0
+
+        ponct_cy = (1 - df_cy[col_retards_arr].sum() / df_cy[col_circ].sum()) * 100 if df_cy[col_circ].sum() > 0 else ponctualite
+        ponct_py = (1 - df_py[col_retards_arr].sum() / df_py[col_circ].sum()) * 100 if len(df_py) > 0 and df_py[col_circ].sum() > 0 else ponct_cy
+        delta_ponct = ponct_cy - ponct_py
+
+        # Taux d'annulation
+        taux_annul = (df[col_annul].sum() / circ_total) * 100 if circ_total > 0 else 0
+
         nb_liaisons = df.groupby([col_dep, col_arr]).ngroups
         nb_gares = df[col_dep].nunique()
         nb_obs = len(df)
 
-        k1, k2, k3, k4 = st.columns(4)
+        # Row 1 — business performance KPIs
+        k1, k2, k3 = st.columns(3)
         with k1:
-            st.metric("Retard moyen", f"{retard_moyen:.1f} min")
+            delta_str = f"{delta_retard:+.2f} min vs {current_year - 1}"
+            st.metric(
+                "Retard moyen (jan–mai)",
+                f"{retard_cy:.1f} min",
+                delta=delta_str,
+                delta_color="inverse",
+            )
         with k2:
-            st.metric("Liaisons analysées", f"{nb_liaisons}")
+            delta_str_p = f"{delta_ponct:+.1f}pt vs {current_year - 1}"
+            st.metric(
+                "Taux de ponctualité",
+                f"{ponctualite:.1f}%",
+                delta=delta_str_p,
+                delta_color="normal",
+            )
         with k3:
-            st.metric("Gares couvertes", f"{nb_gares}")
+            st.metric("Taux d'annulation", f"{taux_annul:.2f}%")
+
+        # Row 2 — scope KPIs
+        k4, k5, k6 = st.columns(3)
         with k4:
+            st.metric("Liaisons analysées", f"{nb_liaisons}")
+        with k5:
+            st.metric("Gares couvertes", f"{nb_gares}")
+        with k6:
             st.metric("Observations", f"{nb_obs:,}".replace(",", " "))
 
         st.markdown("")
@@ -161,6 +281,26 @@ def build_app() -> None:
         )
         fig_timeline.update_traces(line_color="#2563eb", line_width=2.5)
         fig_timeline.update_layout(height=320, margin=dict(l=0, r=0, t=10, b=0))
+
+        # COVID-19 annotation
+        fig_timeline.add_vline(
+            x="2020-03-01",
+            line_dash="dash",
+            line_color="#ef4444",
+            line_width=1.5,
+        )
+        fig_timeline.add_annotation(
+            x="2020-03-01",
+            y=0.98,
+            yref="paper",
+            text="⚠️ COVID-19 · Mars 2020",
+            showarrow=False,
+            font=dict(size=10, color="#ef4444"),
+            xanchor="left",
+            bgcolor="rgba(255,255,255,0.8)",
+            bordercolor="#ef4444",
+            borderwidth=1,
+        )
         st.plotly_chart(fig_timeline, use_container_width=True)
 
         st.markdown('<p class="section-header">Saisonnalité par mois</p>', unsafe_allow_html=True)
@@ -191,12 +331,59 @@ def build_app() -> None:
         )
 
     # =========================================================
-    # PAGE 2 : LIAISONS A RISQUE
+    # PAGE 2 : LIAISONS À RISQUE
     # =========================================================
-    elif page == "Liaisons a risque":
+    elif page == "Liaisons à risque":
         st.markdown('<p class="main-title">Liaisons à risque</p>', unsafe_allow_html=True)
         st.markdown('<p class="subtitle">Classement des liaisons les plus touchées par les retards</p>', unsafe_allow_html=True)
 
+        # --- Carte géographique ---
+        st.markdown('<p class="section-header">Carte du réseau TGV — Retard moyen par gare de départ</p>', unsafe_allow_html=True)
+
+        station_delays = df.groupby(col_dep)[target].mean().reset_index()
+        station_delays.columns = ["gare", "retard"]
+        station_delays["lat"] = station_delays["gare"].map(
+            lambda g: STATION_COORDS.get(g, (None, None))[0]
+        )
+        station_delays["lon"] = station_delays["gare"].map(
+            lambda g: STATION_COORDS.get(g, (None, None))[1]
+        )
+        station_delays = station_delays.dropna(subset=["lat", "lon"])
+
+        if len(station_delays) > 0:
+            fig_map = px.scatter_geo(
+                station_delays,
+                lat="lat",
+                lon="lon",
+                size="retard",
+                color="retard",
+                hover_name="gare",
+                size_max=28,
+                color_continuous_scale=[[0, "#bfdbfe"], [0.5, "#2563eb"], [1, "#1a3a5c"]],
+                labels={"retard": "Retard (min)"},
+                template="plotly_white",
+            )
+            fig_map.update_geos(
+                lonaxis_range=[-6, 16],
+                lataxis_range=[41, 53],
+                showland=True,
+                landcolor="#f8f9fa",
+                showcoastlines=True,
+                coastlinecolor="#d1d5db",
+                showcountries=True,
+                countrycolor="#d1d5db",
+                showsubunits=True,
+                subunitcolor="#e5e7eb",
+                bgcolor="#ffffff",
+            )
+            fig_map.update_layout(
+                height=420,
+                margin=dict(l=0, r=0, t=10, b=0),
+                coloraxis_colorbar=dict(title="min", len=0.6),
+            )
+            st.plotly_chart(fig_map, use_container_width=True)
+
+        # --- Top 15 liaisons ---
         st.markdown('<p class="section-header">Top 15 des liaisons les plus retardées</p>', unsafe_allow_html=True)
 
         top15 = (
@@ -223,31 +410,31 @@ def build_app() -> None:
         )
         st.plotly_chart(fig_top, use_container_width=True)
 
+        # --- Détail par gare avec sévérité ---
         st.markdown('<p class="section-header">Détail par gare de départ</p>', unsafe_allow_html=True)
 
         all_deps = ["Toutes"] + sorted(df[col_dep].unique().tolist())
         selected_dep = st.selectbox("Filtrer par gare de départ", all_deps)
 
-        liaisons_df = (
-            df.groupby([col_dep, col_arr])[target]
-            .agg(["mean", "max", "count"])
+        liaisons_agg = (
+            df.groupby([col_dep, col_arr])
+            .apply(lambda g: pd.Series({
+                "Retard moyen (min)": round(g[target].mean(), 1),
+                "Retard max (min)": round(g[target].max(), 1),
+                "Nb observations": len(g),
+                "% >15 min": round(g[col_15min].sum() / g[col_circ].sum() * 100, 1) if g[col_circ].sum() > 0 else 0,
+                "% >30 min": round(g[col_30min].sum() / g[col_circ].sum() * 100, 1) if g[col_circ].sum() > 0 else 0,
+                "% >60 min": round(g[col_60min].sum() / g[col_circ].sum() * 100, 1) if g[col_circ].sum() > 0 else 0,
+            }), include_groups=False)
             .reset_index()
-            .rename(columns={
-                col_dep: "Départ",
-                col_arr: "Arrivée",
-                "mean": "Retard moyen (min)",
-                "max": "Retard max (min)",
-                "count": "Nb observations",
-            })
+            .rename(columns={col_dep: "Départ", col_arr: "Arrivée"})
             .sort_values("Retard moyen (min)", ascending=False)
         )
-        liaisons_df["Retard moyen (min)"] = liaisons_df["Retard moyen (min)"].round(1)
-        liaisons_df["Retard max (min)"] = liaisons_df["Retard max (min)"].round(1)
 
         if selected_dep != "Toutes":
-            liaisons_df = liaisons_df[liaisons_df["Départ"] == selected_dep]
+            liaisons_agg = liaisons_agg[liaisons_agg["Départ"] == selected_dep]
 
-        st.dataframe(liaisons_df.reset_index(drop=True), use_container_width=True, hide_index=True)
+        st.dataframe(liaisons_agg.reset_index(drop=True), use_container_width=True, hide_index=True)
 
     # =========================================================
     # PAGE 3 : COMPRENDRE LES RETARDS
@@ -305,17 +492,33 @@ def build_app() -> None:
         fig_area.update_layout(height=380)
         st.plotly_chart(fig_area, use_container_width=True)
 
+        # --- Taux d'annulation par année ---
+        st.markdown('<p class="section-header">Évolution du taux d\'annulation par année</p>', unsafe_allow_html=True)
+        cancel_by_year = (
+            df.groupby("Annee")
+            .apply(lambda g: g[col_annul].sum() / g[col_circ].sum() * 100 if g[col_circ].sum() > 0 else 0)
+            .reset_index()
+        )
+        cancel_by_year.columns = ["Annee", "Taux d'annulation (%)"]
+        fig_cancel = px.bar(
+            cancel_by_year, x="Annee", y="Taux d'annulation (%)",
+            template="plotly_white",
+            color="Taux d'annulation (%)",
+            color_continuous_scale=[[0, "#bfdbfe"], [1, "#1a3a5c"]],
+            labels={"Annee": ""},
+        )
+        fig_cancel.update_layout(height=280, coloraxis_showscale=False)
+        st.plotly_chart(fig_cancel, use_container_width=True)
+
     # =========================================================
-    # PAGE 4 : PREDIRE UN RETARD
+    # PAGE 4 : PRÉDIRE UN RETARD
     # =========================================================
-    elif page == "Predire un retard":
+    elif page == "Prédire un retard":
         st.markdown('<p class="main-title">Estimation du retard</p>', unsafe_allow_html=True)
         st.markdown('<p class="subtitle">Sélectionnez une liaison et une date pour obtenir une estimation du retard à l\'arrivée</p>', unsafe_allow_html=True)
         st.markdown("")
 
-        le_depart = joblib.load(MODELS_DIR / "le_depart.joblib")
-        le_arrivee = joblib.load(MODELS_DIR / "le_arrivee.joblib")
-        best_model = joblib.load(MODELS_DIR / "gradient_boosting.joblib")
+        le_depart, le_arrivee, best_model = load_models()
 
         # Build valid route combinations from the dataset
         valid_routes: dict[str, list[str]] = (
@@ -328,47 +531,44 @@ def build_app() -> None:
         col1, col2 = st.columns(2)
         with col1:
             default_dep = "PARIS LYON" if "PARIS LYON" in valid_routes else all_departures[0]
-            gare_dep = st.selectbox("Gare de depart", all_departures, index=all_departures.index(default_dep))
+            gare_dep = st.selectbox("Gare de départ", all_departures, index=all_departures.index(default_dep))
         with col2:
             valid_arrivals = valid_routes.get(gare_dep, [])
             default_arr = "MARSEILLE ST CHARLES" if "MARSEILLE ST CHARLES" in valid_arrivals else valid_arrivals[0]
-            gare_arr = st.selectbox("Gare d arrivee", valid_arrivals, index=valid_arrivals.index(default_arr))
+            gare_arr = st.selectbox("Gare d'arrivée", valid_arrivals, index=valid_arrivals.index(default_arr))
 
         # Date and time inputs
         col_date, col_heure, col_jour = st.columns(3)
         with col_date:
             depart_date = st.date_input(
-                "Date de depart",
+                "Date de départ",
                 value=datetime.date.today(),
                 min_value=datetime.date(2018, 1, 1),
                 max_value=datetime.date(2030, 12, 31),
             )
         with col_heure:
-            heure = st.slider("Heure de depart", 0, 23, 8, format="%dh00")
+            heure = st.slider("Heure de départ", 0, 23, 8, format="%dh00")
         with col_jour:
             jours = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
-            st.markdown(f"**Jour**")
+            st.markdown("**Jour**")
             st.markdown(f"### {jours[depart_date.weekday()]}")
 
         mois = depart_date.month
         annee = depart_date.year
 
         mask = (df[col_dep] == gare_dep) & (df[col_arr] == gare_arr)
-        annul_col = [c for c in df.columns if "annul" in c.lower() and "Nombre" in c][0]
-        duree_col = [c for c in df.columns if "moyenne du trajet" in c][0]
-        circ_col = [c for c in df.columns if "circulations" in c][0]
         duree = df.loc[mask, duree_col]
         duree_val = int(duree.mean()) if len(duree) > 0 else 120
-        circulations = df.loc[mask, circ_col]
+        circulations = df.loc[mask, col_circ]
         circ_val = int(circulations.mean()) if len(circulations) > 0 else 300
 
         if st.button("Estimer le retard", type="primary", use_container_width=True):
-            annul_mean = df.loc[mask, annul_col].mean() if len(df.loc[mask]) > 0 else 0
+            annul_mean = df.loc[mask, col_annul].mean() if len(df.loc[mask]) > 0 else 0
             retard_dep_col = [c for c in df.columns if "Retard moyen de tous les trains" in c and "part" in c.lower()][0]
             retard_dep_val = df.loc[mask, retard_dep_col].mean() if len(df.loc[mask]) > 0 else 3.0
             nb_retard_dep_col = [c for c in df.columns if "Nombre de trains en retard au d" in c][0]
             nb_retard_dep = df.loc[mask, nb_retard_dep_col].mean() if len(df.loc[mask]) > 0 else 30
-            taux_annul = (annul_mean / circ_val * 100) if circ_val > 0 else 0
+            taux_annul_pred = (annul_mean / circ_val * 100) if circ_val > 0 else 0
             mois_sin_val = np.sin(2 * np.pi * mois / 12)
             mois_cos_val = np.cos(2 * np.pi * mois / 12)
             pct_ret_dep = (nb_retard_dep / circ_val * 100) if circ_val > 0 else 10
@@ -382,7 +582,7 @@ def build_app() -> None:
                 le_arrivee.transform([gare_arr])[0],
                 duree_val, circ_val, annul_mean, annee,
                 mois_sin_val, mois_cos_val,
-                taux_annul, retard_dep_val, pct_ret_dep,
+                taux_annul_pred, retard_dep_val, pct_ret_dep,
             ] + cause_vals
             features = np.array([feature_vector])
             prediction = best_model.predict(features)[0]
@@ -392,7 +592,7 @@ def build_app() -> None:
             with m1:
                 st.metric("Estimation du retard", f"{prediction:.1f} min")
             with m2:
-                st.metric("Duree du trajet", f"{duree_val} min")
+                st.metric("Durée du trajet", f"{duree_val} min")
             with m3:
                 st.metric("Circulations mensuelles", f"{circ_val}")
 
@@ -401,7 +601,9 @@ def build_app() -> None:
         if len(historique) > 0:
             st.markdown('<p class="section-header">Historique de cette liaison</p>', unsafe_allow_html=True)
             hist_monthly = historique.groupby(["Annee", "Mois"])[target].mean().reset_index()
-            hist_monthly["Date"] = pd.to_datetime(hist_monthly["Annee"].astype(str) + "-" + hist_monthly["Mois"].astype(str).str.zfill(2) + "-01")
+            hist_monthly["Date"] = pd.to_datetime(
+                hist_monthly["Annee"].astype(str) + "-" + hist_monthly["Mois"].astype(str).str.zfill(2) + "-01"
+            )
 
             fig_hist = px.line(
                 hist_monthly, x="Date", y=target,
@@ -412,24 +614,22 @@ def build_app() -> None:
             fig_hist.update_layout(height=400)
             st.plotly_chart(fig_hist, use_container_width=True)
 
-            # Stats de la liaison
             col_s1, col_s2, col_s3, col_s4 = st.columns(4)
             with col_s1:
                 st.metric("Retard moyen historique", f"{historique[target].mean():.1f} min")
             with col_s2:
-                st.metric("Retard max observe", f"{historique[target].max():.1f} min")
+                st.metric("Retard max observé", f"{historique[target].max():.1f} min")
             with col_s3:
-                st.metric("Retard min observe", f"{historique[target].min():.1f} min")
+                st.metric("Retard min observé", f"{historique[target].min():.1f} min")
             with col_s4:
-                annul_col = [c for c in df.columns if "annul" in c][0]
-                st.metric("Trains annules (moy)", f"{historique[annul_col].mean():.0f}")
+                st.metric("Trains annulés (moy)", f"{historique[col_annul].mean():.0f}")
         else:
-            st.warning("Aucune donnee historique pour cette liaison.")
+            st.warning("Aucune donnée historique pour cette liaison.")
 
     # =========================================================
-    # PAGE 5 : SYNTHESE
+    # PAGE 5 : SYNTHÈSE
     # =========================================================
-    elif page == "Synthese":
+    elif page == "Synthèse":
         st.markdown('<p class="main-title">Synthèse & Perspectives</p>', unsafe_allow_html=True)
         st.markdown('<p class="subtitle">Ce que les données révèlent — et ce qu\'on peut en faire</p>', unsafe_allow_html=True)
 
