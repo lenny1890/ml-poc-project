@@ -40,40 +40,60 @@ def build_app() -> None:
     st.markdown("""
     <style>
     .main-title {
-        font-size: 2.5rem;
+        font-size: 2.2rem;
         font-weight: 700;
-        background: linear-gradient(90deg, #1e3a5f, #4a90d9);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
+        color: #1a3a5c;
         margin-bottom: 0;
     }
     .subtitle {
-        font-size: 1.1rem;
-        color: #888;
-        margin-top: 0;
-    }
-    .metric-card {
-        background: linear-gradient(135deg, #1e1e2e, #2a2a3e);
-        border-radius: 12px;
-        padding: 20px;
-        border-left: 4px solid #4a90d9;
-    }
-    .metric-value {
-        font-size: 2rem;
-        font-weight: 700;
-        color: #4a90d9;
-    }
-    .metric-label {
-        font-size: 0.85rem;
-        color: #aaa;
-        text-transform: uppercase;
-        letter-spacing: 1px;
+        font-size: 1rem;
+        color: #6b7280;
+        margin-top: 4px;
+        margin-bottom: 1.5rem;
     }
     .section-header {
-        font-size: 1.5rem;
+        font-size: 1.3rem;
         font-weight: 600;
-        border-bottom: 2px solid #4a90d9;
-        padding-bottom: 8px;
+        color: #1a3a5c;
+        border-bottom: 2px solid #2563eb;
+        padding-bottom: 6px;
+        margin-top: 1.5rem;
+        margin-bottom: 1rem;
+    }
+    .insight-card {
+        background: #ffffff;
+        border-left: 4px solid #2563eb;
+        border-radius: 8px;
+        padding: 20px 24px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        margin-bottom: 12px;
+        min-height: 120px;
+    }
+    .insight-number {
+        font-size: 1.6rem;
+        font-weight: 700;
+        color: #1a3a5c;
+        margin-bottom: 6px;
+    }
+    .insight-label {
+        font-size: 0.9rem;
+        color: #6b7280;
+        line-height: 1.4;
+    }
+    .next-step-card {
+        background: #f0f7ff;
+        border-radius: 8px;
+        padding: 16px 20px;
+        margin-bottom: 8px;
+        border-left: 3px solid #2563eb;
+    }
+    .model-encart {
+        background: #f8f9fa;
+        border-radius: 8px;
+        padding: 12px 18px;
+        border: 1px solid #e5e7eb;
+        color: #6b7280;
+        font-size: 0.85rem;
         margin-top: 2rem;
     }
     </style>
