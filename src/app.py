@@ -191,11 +191,126 @@ def build_app() -> None:
         )
 
     # =========================================================
-    # PAGE 2 : PREDICTEUR INTERACTIF
+    # PAGE 2 : LIAISONS A RISQUE
+    # =========================================================
+    elif page == "Liaisons a risque":
+        st.markdown('<p class="main-title">Liaisons à risque</p>', unsafe_allow_html=True)
+        st.markdown('<p class="subtitle">Classement des liaisons les plus touchées par les retards</p>', unsafe_allow_html=True)
+
+        st.markdown('<p class="section-header">Top 15 des liaisons les plus retardées</p>', unsafe_allow_html=True)
+
+        top15 = (
+            df.groupby([col_dep, col_arr])[target]
+            .mean()
+            .sort_values(ascending=False)
+            .head(15)
+            .reset_index()
+        )
+        top15["Liaison"] = top15[col_dep] + " → " + top15[col_arr]
+
+        fig_top = px.bar(
+            top15, x=target, y="Liaison", orientation="h",
+            labels={target: "Retard moyen (min)", "Liaison": ""},
+            template="plotly_white",
+            color=target,
+            color_continuous_scale=[[0, "#bfdbfe"], [1, "#1a3a5c"]],
+        )
+        fig_top.update_layout(
+            height=520,
+            yaxis=dict(autorange="reversed"),
+            coloraxis_showscale=False,
+            margin=dict(l=0, r=20, t=10, b=0),
+        )
+        st.plotly_chart(fig_top, use_container_width=True)
+
+        st.markdown('<p class="section-header">Détail par gare de départ</p>', unsafe_allow_html=True)
+
+        all_deps = ["Toutes"] + sorted(df[col_dep].unique().tolist())
+        selected_dep = st.selectbox("Filtrer par gare de départ", all_deps)
+
+        liaisons_df = (
+            df.groupby([col_dep, col_arr])[target]
+            .agg(["mean", "max", "count"])
+            .reset_index()
+            .rename(columns={
+                col_dep: "Départ",
+                col_arr: "Arrivée",
+                "mean": "Retard moyen (min)",
+                "max": "Retard max (min)",
+                "count": "Nb observations",
+            })
+            .sort_values("Retard moyen (min)", ascending=False)
+        )
+        liaisons_df["Retard moyen (min)"] = liaisons_df["Retard moyen (min)"].round(1)
+        liaisons_df["Retard max (min)"] = liaisons_df["Retard max (min)"].round(1)
+
+        if selected_dep != "Toutes":
+            liaisons_df = liaisons_df[liaisons_df["Départ"] == selected_dep]
+
+        st.dataframe(liaisons_df.reset_index(drop=True), use_container_width=True, hide_index=True)
+
+    # =========================================================
+    # PAGE 3 : COMPRENDRE LES RETARDS
+    # =========================================================
+    elif page == "Comprendre les retards":
+        st.markdown('<p class="main-title">Comprendre les retards</p>', unsafe_allow_html=True)
+        st.markdown('<p class="subtitle">Quelles sont les causes et comment évoluent-elles ?</p>', unsafe_allow_html=True)
+
+        cause_cols = [c for c in df.columns if c.startswith("Prct retard")]
+        cause_names = {
+            cause_cols[0]: "Causes externes",
+            cause_cols[1]: "Infrastructure",
+            cause_cols[2]: "Gestion du trafic",
+            cause_cols[3]: "Matériel roulant",
+            cause_cols[4]: "Gestion en gare",
+            cause_cols[5]: "Voyageurs",
+        }
+
+        cause_means = {v: df[k].mean() for k, v in cause_names.items()}
+        cause_df = pd.DataFrame(list(cause_means.items()), columns=["Cause", "Part (%)"])
+
+        col_donut, col_bar = st.columns(2)
+        with col_donut:
+            st.markdown('<p class="section-header">Répartition globale</p>', unsafe_allow_html=True)
+            fig_donut = px.pie(
+                cause_df, values="Part (%)", names="Cause",
+                template="plotly_white",
+                color_discrete_sequence=["#1a3a5c", "#2563eb", "#3b82f6", "#60a5fa", "#93c5fd", "#bfdbfe"],
+                hole=0.4,
+            )
+            fig_donut.update_layout(height=360, legend=dict(orientation="v", font=dict(size=11)))
+            st.plotly_chart(fig_donut, use_container_width=True)
+
+        with col_bar:
+            st.markdown('<p class="section-header">Par importance</p>', unsafe_allow_html=True)
+            fig_bar = px.bar(
+                cause_df.sort_values("Part (%)"), x="Part (%)", y="Cause", orientation="h",
+                template="plotly_white",
+                color="Part (%)",
+                color_continuous_scale=[[0, "#bfdbfe"], [1, "#1a3a5c"]],
+            )
+            fig_bar.update_layout(height=360, coloraxis_showscale=False)
+            st.plotly_chart(fig_bar, use_container_width=True)
+
+        st.markdown('<p class="section-header">Évolution des causes par année</p>', unsafe_allow_html=True)
+        cause_year = df.groupby("Annee")[cause_cols].mean().reset_index()
+        cause_year_melted = cause_year.melt(id_vars="Annee", var_name="Cause", value_name="Part (%)")
+        cause_year_melted["Cause"] = cause_year_melted["Cause"].map(cause_names)
+        fig_area = px.area(
+            cause_year_melted, x="Annee", y="Part (%)", color="Cause",
+            template="plotly_white",
+            labels={"Part (%)": "% moyen"},
+            color_discrete_sequence=["#1a3a5c", "#2563eb", "#3b82f6", "#60a5fa", "#93c5fd", "#bfdbfe"],
+        )
+        fig_area.update_layout(height=380)
+        st.plotly_chart(fig_area, use_container_width=True)
+
+    # =========================================================
+    # PAGE 4 : PREDIRE UN RETARD
     # =========================================================
     elif page == "Predire un retard":
-        st.markdown('<p class="main-title">Predicteur interactif</p>', unsafe_allow_html=True)
-        st.markdown('<p class="subtitle">Selectionnez une liaison, une date et une heure pour predire le retard moyen</p>', unsafe_allow_html=True)
+        st.markdown('<p class="main-title">Estimation du retard</p>', unsafe_allow_html=True)
+        st.markdown('<p class="subtitle">Sélectionnez une liaison et une date pour obtenir une estimation du retard à l\'arrivée</p>', unsafe_allow_html=True)
         st.markdown("")
 
         le_depart = joblib.load(MODELS_DIR / "le_depart.joblib")
@@ -247,7 +362,7 @@ def build_app() -> None:
         circulations = df.loc[mask, circ_col]
         circ_val = int(circulations.mean()) if len(circulations) > 0 else 300
 
-        if st.button("Predire le retard", type="primary", use_container_width=True):
+        if st.button("Estimer le retard", type="primary", use_container_width=True):
             annul_mean = df.loc[mask, annul_col].mean() if len(df.loc[mask]) > 0 else 0
             retard_dep_col = [c for c in df.columns if "Retard moyen de tous les trains" in c and "part" in c.lower()][0]
             retard_dep_val = df.loc[mask, retard_dep_col].mean() if len(df.loc[mask]) > 0 else 3.0
@@ -275,7 +390,7 @@ def build_app() -> None:
             st.markdown("")
             m1, m2, m3 = st.columns(3)
             with m1:
-                st.metric("Retard predit", f"{prediction:.1f} min")
+                st.metric("Estimation du retard", f"{prediction:.1f} min")
             with m2:
                 st.metric("Duree du trajet", f"{duree_val} min")
             with m3:
@@ -291,9 +406,9 @@ def build_app() -> None:
             fig_hist = px.line(
                 hist_monthly, x="Date", y=target,
                 labels={target: "Retard moyen (min)", "Date": ""},
-                template="plotly_dark",
+                template="plotly_white",
             )
-            fig_hist.update_traces(line_color="#4a90d9", line_width=2)
+            fig_hist.update_traces(line_color="#2563eb", line_width=2)
             fig_hist.update_layout(height=400)
             st.plotly_chart(fig_hist, use_container_width=True)
 
@@ -310,6 +425,94 @@ def build_app() -> None:
                 st.metric("Trains annules (moy)", f"{historique[annul_col].mean():.0f}")
         else:
             st.warning("Aucune donnee historique pour cette liaison.")
+
+    # =========================================================
+    # PAGE 5 : SYNTHESE
+    # =========================================================
+    elif page == "Synthese":
+        st.markdown('<p class="main-title">Synthèse & Perspectives</p>', unsafe_allow_html=True)
+        st.markdown('<p class="subtitle">Ce que les données révèlent — et ce qu\'on peut en faire</p>', unsafe_allow_html=True)
+
+        mois_data_s = df.groupby("Mois")[target].mean()
+        pire_mois_idx = int(mois_data_s.idxmax())
+        mois_noms_fr = {
+            1: "Janvier", 2: "Février", 3: "Mars", 4: "Avril",
+            5: "Mai", 6: "Juin", 7: "Juillet", 8: "Août",
+            9: "Septembre", 10: "Octobre", 11: "Novembre", 12: "Décembre",
+        }
+        pire_mois_nom = mois_noms_fr[pire_mois_idx]
+        pire_mois_val = mois_data_s[pire_mois_idx]
+
+        liaison_means = df.groupby([col_dep, col_arr])[target].mean()
+        pire_liaison = liaison_means.idxmax()
+        pire_retard_val = liaison_means.max()
+
+        if MODEL_METRICS_FILE.exists():
+            _mdf2 = pd.read_csv(MODEL_METRICS_FILE)
+            _mae2 = _mdf2.loc[_mdf2["R2"].idxmax(), "MAE"]
+        else:
+            _mae2 = 3.0
+
+        st.markdown('<p class="section-header">3 enseignements clés</p>', unsafe_allow_html=True)
+        i1, i2, i3 = st.columns(3)
+
+        with i1:
+            st.markdown(
+                f'<div class="insight-card">'
+                f'<div class="insight-number">📅 {pire_mois_nom}</div>'
+                f'<div class="insight-label">est le mois le plus à risque avec {pire_mois_val:.1f} min de retard moyen — '
+                f'planifier des ressources supplémentaires en conséquence.</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+        with i2:
+            liaison_str = f"{pire_liaison[0]} → {pire_liaison[1]}"
+            st.markdown(
+                f'<div class="insight-card">'
+                f'<div class="insight-number">🚂 {pire_retard_val:.0f} min</div>'
+                f'<div class="insight-label">de retard moyen sur la liaison la plus impactée<br>'
+                f'<b>{liaison_str}</b> — priorité d\'action identifiée.</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+        with i3:
+            st.markdown(
+                f'<div class="insight-card">'
+                f'<div class="insight-number">🎯 ±{_mae2:.1f} min</div>'
+                f'<div class="insight-label">d\'erreur moyenne du modèle de prédiction — '
+                f'une précision opérationnelle suffisante pour anticiper les situations à risque.</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+        st.markdown("")
+        st.markdown('<p class="section-header">Et ensuite ?</p>', unsafe_allow_html=True)
+
+        next_steps = [
+            (
+                "🚀 Déploiement en production",
+                "Intégrer l'outil dans les tableaux de bord opérationnels SNCF pour un usage quotidien par les équipes métier et les gestionnaires de lignes.",
+            ),
+            (
+                "📡 Données en temps réel",
+                "Connecter le modèle aux flux de données temps réel (perturbations, météo, trafic) pour des prédictions dynamiques à J+1 et J+7.",
+            ),
+            (
+                "🔔 Alertes automatiques",
+                "Mettre en place un système d'alertes sur les liaisons à risque avant les grandes périodes de trafic (vacances scolaires, événements).",
+            ),
+        ]
+
+        for title, desc in next_steps:
+            st.markdown(
+                f'<div class="next-step-card">'
+                f'<b>{title}</b><br>'
+                f'<span style="color:#6b7280;font-size:0.9rem">{desc}</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
 
 if __name__ == "__main__":
