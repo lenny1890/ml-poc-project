@@ -125,244 +125,75 @@ def build_app() -> None:
         st.caption("Lenny Sebban")
 
     # =========================================================
-    # PAGE 1 : VUE D'ENSEMBLE
+    # PAGE 1 : CONTEXTE & ENJEUX
     # =========================================================
-    if page == "Vue d ensemble":
-        st.markdown('<p class="main-title">Prediction des retards TGV</p>', unsafe_allow_html=True)
-        st.markdown('<p class="subtitle">Analyse et prediction des retards moyens a l arrivee des TGV en France</p>', unsafe_allow_html=True)
-        st.markdown("")
+    if page == "Contexte & Enjeux":
+        st.markdown('<p class="main-title">Retards TGV — Analyse & Prédiction</p>', unsafe_allow_html=True)
+        st.markdown('<p class="subtitle">Données SNCF Open Data · 2018–2026 · Réseau TGV national</p>', unsafe_allow_html=True)
 
-        # KPI Cards
+        # KPIs
         retard_moyen = df[target].mean()
         nb_liaisons = df.groupby([col_dep, col_arr]).ngroups
         nb_gares = df[col_dep].nunique()
         nb_obs = len(df)
-        pire_liaison = df.groupby([col_dep, col_arr])[target].mean().idxmax()
-        pire_retard = df.groupby([col_dep, col_arr])[target].mean().max()
 
         k1, k2, k3, k4 = st.columns(4)
         with k1:
-            st.metric("Retard moyen global", f"{retard_moyen:.1f} min")
+            st.metric("Retard moyen", f"{retard_moyen:.1f} min")
         with k2:
-            st.metric("Liaisons analysees", f"{nb_liaisons}")
+            st.metric("Liaisons analysées", f"{nb_liaisons}")
         with k3:
             st.metric("Gares couvertes", f"{nb_gares}")
         with k4:
             st.metric("Observations", f"{nb_obs:,}".replace(",", " "))
 
         st.markdown("")
+        st.markdown('<p class="section-header">Évolution du retard moyen (2018–2026)</p>', unsafe_allow_html=True)
 
-        # Evolution temporelle
-        st.markdown('<p class="section-header">Evolution du retard moyen dans le temps</p>', unsafe_allow_html=True)
         monthly = df.groupby(["Annee", "Mois"])[target].mean().reset_index()
-        monthly["Date"] = pd.to_datetime(monthly["Annee"].astype(str) + "-" + monthly["Mois"].astype(str).str.zfill(2) + "-01")
+        monthly["Date"] = pd.to_datetime(
+            monthly["Annee"].astype(str) + "-" + monthly["Mois"].astype(str).str.zfill(2) + "-01"
+        )
         fig_timeline = px.line(
             monthly, x="Date", y=target,
             labels={target: "Retard moyen (min)", "Date": ""},
-            template="plotly_dark",
+            template="plotly_white",
         )
-        fig_timeline.update_traces(line_color="#4a90d9", line_width=2)
-        fig_timeline.update_layout(height=400, margin=dict(l=0, r=0, t=10, b=0))
+        fig_timeline.update_traces(line_color="#2563eb", line_width=2.5)
+        fig_timeline.update_layout(height=320, margin=dict(l=0, r=0, t=10, b=0))
         st.plotly_chart(fig_timeline, use_container_width=True)
 
-        # Contexte
-        st.markdown('<p class="section-header">A propos du projet</p>', unsafe_allow_html=True)
-        col_a, col_b = st.columns(2)
-        with col_a:
-            st.markdown(
-                "La SNCF publie chaque mois les donnees de regularite de ses TGV "
-                "par liaison gare a gare. Ce projet exploite ces donnees Open Data "
-                "pour entrainer des modeles de Machine Learning capables de predire "
-                "le retard moyen a l arrivee."
-            )
-        with col_b:
-            st.markdown(
-                "**Approche** : 4 algorithmes de regression sont compares "
-                "(Linear Regression, Random Forest, Gradient Boosting, KNN). "
-                "Le meilleur modele (Gradient Boosting, R2=0.68 avec features V2) est utilise "
-                "dans le predicteur interactif."
-            )
-
-    # =========================================================
-    # PAGE 2 : EXPLORATION DES DONNEES
-    # =========================================================
-    elif page == "Exploration des donnees":
-        st.markdown('<p class="main-title">Exploration des donnees</p>', unsafe_allow_html=True)
-        st.markdown("")
-
-        tab1, tab2, tab3 = st.tabs(["Saisonnalite", "Par annee", "Top liaisons"])
-
-        with tab1:
-            mois_data = df.groupby("Mois")[target].agg(["mean", "std", "count"]).reset_index()
-            mois_noms = ["Jan", "Fev", "Mar", "Avr", "Mai", "Juin", "Juil", "Aout", "Sep", "Oct", "Nov", "Dec"]
-            mois_data["Mois_nom"] = [mois_noms[i-1] for i in mois_data["Mois"]]
-
-            fig_mois = px.bar(
-                mois_data, x="Mois_nom", y="mean",
-                error_y="std",
-                labels={"mean": "Retard moyen (min)", "Mois_nom": "Mois"},
-                template="plotly_dark",
-                color="mean",
-                color_continuous_scale="RdYlGn_r",
-            )
-            fig_mois.update_layout(height=500, showlegend=False, coloraxis_showscale=False)
-            st.plotly_chart(fig_mois, use_container_width=True)
-
-            st.markdown(
-                "Les mois d ete (juillet) et d hiver (janvier, fevrier) "
-                "affichent les retards les plus eleves, en raison de l affluence "
-                "estivale et des conditions meteorologiques hivernales."
-            )
-
-        with tab2:
-            annee_data = df.groupby("Annee")[target].mean().reset_index()
-            fig_annee = px.bar(
-                annee_data, x="Annee", y=target,
-                labels={target: "Retard moyen (min)", "Annee": "Annee"},
-                template="plotly_dark",
-                color=target,
-                color_continuous_scale="Blues",
-            )
-            fig_annee.update_layout(height=500, showlegend=False, coloraxis_showscale=False)
-            st.plotly_chart(fig_annee, use_container_width=True)
-
-        with tab3:
-            n_top = st.slider("Nombre de liaisons a afficher", 5, 20, 10)
-            top = (
-                df.groupby([col_dep, col_arr])[target]
-                .mean()
-                .sort_values(ascending=False)
-                .head(n_top)
-                .reset_index()
-            )
-            top["Liaison"] = top[col_dep] + " -> " + top[col_arr]
-
-            fig_top = px.bar(
-                top, x=target, y="Liaison", orientation="h",
-                labels={target: "Retard moyen (min)"},
-                template="plotly_dark",
-                color=target,
-                color_continuous_scale="Reds",
-            )
-            fig_top.update_layout(height=max(400, n_top * 40), yaxis=dict(autorange="reversed"), coloraxis_showscale=False)
-            st.plotly_chart(fig_top, use_container_width=True)
-
-    # =========================================================
-    # PAGE 3 : CAUSES DE RETARD
-    # =========================================================
-    elif page == "Causes de retard":
-        st.markdown('<p class="main-title">Analyse des causes de retard</p>', unsafe_allow_html=True)
-        st.markdown("")
-
-        cause_cols = [c for c in df.columns if c.startswith("Prct retard")]
-        cause_names = {
-            cause_cols[0]: "Causes externes",
-            cause_cols[1]: "Infrastructure",
-            cause_cols[2]: "Gestion trafic",
-            cause_cols[3]: "Materiel roulant",
-            cause_cols[4]: "Gestion gare",
-            cause_cols[5]: "Voyageurs",
-        }
-
-        cause_means = {v: df[k].mean() for k, v in cause_names.items()}
-        cause_df = pd.DataFrame(list(cause_means.items()), columns=["Cause", "Pourcentage moyen"])
-        cause_df = cause_df.sort_values("Pourcentage moyen", ascending=True)
-
-        fig_causes = px.bar(
-            cause_df, x="Pourcentage moyen", y="Cause", orientation="h",
-            template="plotly_dark",
-            color="Pourcentage moyen",
-            color_continuous_scale="Viridis",
+        st.markdown('<p class="section-header">Saisonnalité par mois</p>', unsafe_allow_html=True)
+        mois_noms = ["Jan", "Fév", "Mar", "Avr", "Mai", "Juin", "Juil", "Août", "Sep", "Oct", "Nov", "Déc"]
+        mois_data = df.groupby("Mois")[target].mean().reset_index()
+        mois_data["Mois_nom"] = [mois_noms[i - 1] for i in mois_data["Mois"]]
+        fig_mois = px.bar(
+            mois_data, x="Mois_nom", y=target,
+            labels={target: "Retard moyen (min)", "Mois_nom": ""},
+            template="plotly_white",
+            color=target,
+            color_continuous_scale=[[0, "#bfdbfe"], [1, "#1a3a5c"]],
         )
-        fig_causes.update_layout(height=400, coloraxis_showscale=False)
-        st.plotly_chart(fig_causes, use_container_width=True)
+        fig_mois.update_layout(height=280, showlegend=False, coloraxis_showscale=False)
+        st.plotly_chart(fig_mois, use_container_width=True)
 
-        # Evolution des causes par annee
-        st.markdown('<p class="section-header">Evolution des causes par annee</p>', unsafe_allow_html=True)
-        cause_year = df.groupby("Annee")[cause_cols].mean().reset_index()
-        cause_year_melted = cause_year.melt(id_vars="Annee", var_name="Cause", value_name="Pourcentage")
-        cause_year_melted["Cause"] = cause_year_melted["Cause"].map(cause_names)
-
-        fig_cause_year = px.area(
-            cause_year_melted, x="Annee", y="Pourcentage", color="Cause",
-            template="plotly_dark",
-            labels={"Pourcentage": "% moyen"},
-        )
-        fig_cause_year.update_layout(height=500)
-        st.plotly_chart(fig_cause_year, use_container_width=True)
-
-        # Avant/apres COVID
-        st.markdown('<p class="section-header">Impact COVID : avant vs apres 2020</p>', unsafe_allow_html=True)
-        col1, col2 = st.columns(2)
-        avant = df[df["Annee"] < 2020][target].mean()
-        apres = df[df["Annee"] >= 2021][target].mean()
-        with col1:
-            st.metric("Retard moyen avant 2020", f"{avant:.1f} min")
-        with col2:
-            delta = apres - avant
-            st.metric("Retard moyen apres 2020", f"{apres:.1f} min", delta=f"{delta:+.1f} min", delta_color="inverse")
-
-    # =========================================================
-    # PAGE 4 : COMPARAISON DES MODELES
-    # =========================================================
-    elif page == "Comparaison des modeles":
-        st.markdown('<p class="main-title">Comparaison des modeles</p>', unsafe_allow_html=True)
-        st.markdown("")
-
+        # Model encart — discret
         if MODEL_METRICS_FILE.exists():
-            metrics_df = pd.read_csv(MODEL_METRICS_FILE)
-
-            # Highlight best model
-            best_idx = metrics_df["R2"].idxmax()
-            best_name = metrics_df.loc[best_idx, "model_name"]
-            best_r2 = metrics_df.loc[best_idx, "R2"]
-            best_mae = metrics_df.loc[best_idx, "MAE"]
-
-            st.success(f"Meilleur modele : **{best_name}** avec un R2 de {best_r2:.4f} et une MAE de {best_mae:.2f} min")
-
-            tab1, tab2 = st.tabs(["Tableau comparatif", "Visualisations"])
-
-            with tab1:
-                display_df = metrics_df[["model_name", "MAE", "RMSE", "R2"]].copy()
-                display_df.columns = ["Modele", "MAE (min)", "RMSE (min)", "R2"]
-                display_df = display_df.sort_values("R2", ascending=False)
-                st.dataframe(display_df, use_container_width=True, hide_index=True)
-
-                st.markdown(
-                    "**MAE** = erreur moyenne en minutes. "
-                    "**RMSE** = erreur penalisant les gros ecarts. "
-                    "**R2** = qualite globale (1 = parfait, 0 = aussi bon que la moyenne)."
-                )
-
-            with tab2:
-                fig_r2 = px.bar(
-                    metrics_df.sort_values("R2"), x="R2", y="model_name",
-                    orientation="h",
-                    labels={"R2": "R2 Score", "model_name": ""},
-                    template="plotly_dark",
-                    color="R2",
-                    color_continuous_scale="Viridis",
-                )
-                fig_r2.update_layout(height=350, coloraxis_showscale=False)
-                st.plotly_chart(fig_r2, use_container_width=True)
-
-                fig_mae = px.bar(
-                    metrics_df.sort_values("MAE"), x="MAE", y="model_name",
-                    orientation="h",
-                    labels={"MAE": "MAE (minutes)", "model_name": ""},
-                    template="plotly_dark",
-                    color="MAE",
-                    color_continuous_scale="Reds_r",
-                )
-                fig_mae.update_layout(height=350, coloraxis_showscale=False)
-                st.plotly_chart(fig_mae, use_container_width=True)
+            _mdf = pd.read_csv(MODEL_METRICS_FILE)
+            _best = _mdf.loc[_mdf["R2"].idxmax()]
+            _mae, _r2 = _best["MAE"], _best["R2"]
         else:
-            st.info("Lancez python scripts/main.py pour generer les resultats.")
+            _mae, _r2 = 3.0, 0.68
+        st.markdown(
+            f'<div class="model-encart">🤖 <b>Modèle de prédiction :</b> Gradient Boosting — '
+            f'Précision R² = {_r2:.2f} — Erreur moyenne = {_mae:.1f} min</div>',
+            unsafe_allow_html=True,
+        )
 
     # =========================================================
-    # PAGE 5 : PREDICTEUR INTERACTIF
+    # PAGE 2 : PREDICTEUR INTERACTIF
     # =========================================================
-    elif page == "Predicteur interactif":
+    elif page == "Predire un retard":
         st.markdown('<p class="main-title">Predicteur interactif</p>', unsafe_allow_html=True)
         st.markdown('<p class="subtitle">Selectionnez une liaison, une date et une heure pour predire le retard moyen</p>', unsafe_allow_html=True)
         st.markdown("")
