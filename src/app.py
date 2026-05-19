@@ -103,19 +103,26 @@ def build_app() -> None:
 
     # --- Sidebar ---
     with st.sidebar:
-        st.markdown("## \U0001f684 SNCF TGV")
-        st.markdown("### Navigation")
+        st.markdown("## 🚄 SNCF TGV")
+        st.markdown("##### Outil d'analyse & prédiction")
+        st.markdown("---")
         page = st.radio(
-            "Section",
-            ["Vue d ensemble", "Exploration des donnees", "Causes de retard", "Comparaison des modeles", "Predicteur interactif"],
+            "Navigation",
+            [
+                "Contexte & Enjeux",
+                "Liaisons a risque",
+                "Comprendre les retards",
+                "Predire un retard",
+                "Synthese",
+            ],
             label_visibility="collapsed",
         )
         st.markdown("---")
-        st.markdown("**Dataset SNCF Open Data**")
-        st.markdown("Regularite mensuelle TGV par liaisons (2018-2026)")
+        st.caption("Dataset SNCF Open Data")
+        st.caption("Régularité mensuelle TGV · 2018–2026")
         st.markdown("---")
-        st.markdown("Projet ML - Albert School")
-        st.markdown("Lenny Sebban")
+        st.caption("Projet ML · Albert School")
+        st.caption("Lenny Sebban")
 
     # =========================================================
     # PAGE 1 : VUE D'ENSEMBLE
