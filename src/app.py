@@ -9,6 +9,8 @@ import streamlit as st
 import joblib
 import plotly.express as px
 import plotly.graph_objects as go
+import folium
+from streamlit_folium import st_folium
 
 from config import PROJECT_ROOT, MODELS_DIR, MODEL_METRICS_FILE, ensure_dirs
 
@@ -351,37 +353,43 @@ def build_app() -> None:
         station_delays = station_delays.dropna(subset=["lat", "lon"])
 
         if len(station_delays) > 0:
-            fig_map = px.scatter_geo(
-                station_delays,
-                lat="lat",
-                lon="lon",
-                size="retard",
-                color="retard",
-                hover_name="gare",
-                size_max=28,
-                color_continuous_scale=[[0, "#bfdbfe"], [0.5, "#2563eb"], [1, "#1a3a5c"]],
-                labels={"retard": "Retard (min)"},
-                template="plotly_white",
+            max_delay = station_delays["retard"].max()
+            min_delay = station_delays["retard"].min()
+
+            m = folium.Map(
+                location=[46.5, 2.3],
+                zoom_start=5,
+                tiles="CartoDB positron",
+                control_scale=True,
             )
-            fig_map.update_geos(
-                lonaxis_range=[-6, 16],
-                lataxis_range=[41, 53],
-                showland=True,
-                landcolor="#f8f9fa",
-                showcoastlines=True,
-                coastlinecolor="#d1d5db",
-                showcountries=True,
-                countrycolor="#d1d5db",
-                showsubunits=True,
-                subunitcolor="#e5e7eb",
-                bgcolor="#ffffff",
-            )
-            fig_map.update_layout(
-                height=420,
-                margin=dict(l=0, r=0, t=10, b=0),
-                coloraxis_colorbar=dict(title="min", len=0.6),
-            )
-            st.plotly_chart(fig_map, use_container_width=True)
+
+            for _, row in station_delays.iterrows():
+                t = (row["retard"] - min_delay) / (max_delay - min_delay) if max_delay > min_delay else 0.5
+                # Color gradient: #bfdbfe (light blue) → #1a3a5c (dark navy)
+                r_c = int(191 + t * (26 - 191))
+                g_c = int(219 + t * (58 - 219))
+                b_c = int(254 + t * (92 - 254))
+                hex_color = f"#{r_c:02x}{g_c:02x}{b_c:02x}"
+                radius = max(7, int(row["retard"] * 1.8))
+
+                tooltip_html = (
+                    f"<div style='font-family:sans-serif;font-size:13px;min-width:160px'>"
+                    f"<b style='color:#1a3a5c'>{row['gare']}</b><br>"
+                    f"Retard moyen : <b>{row['retard']:.1f} min</b>"
+                    f"</div>"
+                )
+                folium.CircleMarker(
+                    location=[row["lat"], row["lon"]],
+                    radius=radius,
+                    color="#ffffff",
+                    weight=1.5,
+                    fill=True,
+                    fill_color=hex_color,
+                    fill_opacity=0.85,
+                    tooltip=folium.Tooltip(tooltip_html, sticky=True),
+                ).add_to(m)
+
+            st_folium(m, width="100%", height=450, returned_objects=[])
 
         # --- Top 15 liaisons ---
         st.markdown('<p class="section-header">Top 15 des liaisons les plus retardées</p>', unsafe_allow_html=True)
